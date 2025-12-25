@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>منظم الدراسة</title>
+<link rel="manifest" href="manifest.json">
+<style>
+body { font-family: Arial, sans-serif; direction: rtl; padding: 20px; background: #f0f0f0; }
+h1 { text-align: center; }
+.subject { margin-bottom: 20px; padding: 10px; background: #fff; border-radius: 8px; }
+.chapter { display: flex; justify-content: space-between; margin: 5px 0; }
+button { margin-left: 5px; }
+</style>
+</head>
+<body>
+<h1>منظم الدراسة</h1>
+
+<input id="subjectName" placeholder="أدخل اسم المادة">
+<button onclick="addSubject()">أضف مادة</button>
+<button onclick="resetAll()">إعادة كل شيء</button>
+
+<div id="subjects"></div>
+
+<script>
+// تحميل البيانات من LocalStorage
+let data = JSON.parse(localStorage.getItem('studyData')) || [];
+
+// حفظ البيانات
+function saveData() {
+    localStorage.setItem('studyData', JSON.stringify(data));
+    renderSubjects();
+}
+
+// عرض المواد والفصول
+function renderSubjects() {
+    const container = document.getElementById('subjects');
+    container.innerHTML = '';
+    data.forEach((subject, sIndex) => {
+        const div = document.createElement('div');
+        div.className = 'subject';
+        div.innerHTML = `<h3>${subject.name}</h3>
+                         <input placeholder="أضف شابتر" onkeydown="if(event.key==='Enter'){addChapter(${sIndex}, this.value); this.value='';}">
+                         <div id="chapters${sIndex}"></div>`;
+        container.appendChild(div);
+
+        const chaptersDiv = div.querySelector(`#chapters${sIndex}`);
+        subject.chapters.forEach((chapter, cIndex) => {
+            const chapDiv = document.createElement('div');
+            chapDiv.className = 'chapter';
+            chapDiv.innerHTML = `
+                <span>${chapter.name}</span>
+                <span>
+                    <input type="checkbox" ${chapter.done ? 'checked' : ''} onchange="markDone(${sIndex}, ${cIndex}, this.checked)">
+                    ${chapter.done ? `✅ انتهى: ${chapter.doneDate}` : ''}
+                </span>
+            `;
+            chaptersDiv.appendChild(chapDiv);
+        });
+    });
+}
+
+// إضافة مادة
+function addSubject() {
+    const name = document.getElementById('subjectName').value.trim();
+    if(!name) return;
+    data.push({name: name, chapters: []});
+    saveData();
+    document.getElementById('subjectName').value = '';
+}
+
+// إضافة شابتر
+function addChapter(subjectIndex, chapterName) {
+    if(!chapterName) return;
+    data[subjectIndex].chapters.push({name: chapterName, done: false, doneDate: '', reviewDates: []});
+    saveData();
+}
+
+// وضع علامة صح وحساب التواريخ
+function markDone(subjectIndex, chapterIndex, checked) {
+    const chapter = data[subjectIndex].chapters[chapterIndex];
+    if(checked){
+        const now = new Date();
+        chapter.done = true;
+        chapter.doneDate = now.toLocaleString();
+
+        // تحديد مواعيد المراجعة
+        chapter.reviewDates = [
+            new Date(now.getFullYear(), now.getMonth(), now.getDate(), 21, 0, 0).toLocaleString(), // مساء نفس اليوم 9 مساء
+            new Date(now.getFullYear(), now.getMonth(), now.getDate()+1, 5, 0, 0).toLocaleString(), // صباح اليوم التالي 5 صباح
+            new Date(now.getFullYear(), now.getMonth(), now.getDate()+3, 5, 0, 0).toLocaleString(), // بعد 3 أيام
+            new Date(now.getFullYear(), now.getMonth(), now.getDate()+7, 5, 0, 0).toLocaleString() // بعد أسبوع
+        ];
+        alert(`تم وضع علامة إنهاء الشابتر\nمواعيد المراجعة:\n${chapter.reviewDates.join('\n')}`);
+    } else {
+        chapter.done = false;
+        chapter.doneDate = '';
+        chapter.reviewDates = [];
+    }
+    saveData();
+}
+
+// إعادة كل شيء
+function resetAll() {
+    if(confirm('هل أنت متأكد من إعادة كل شيء؟')){
+        data = [];
+        saveData();
+    }
+}
+
+renderSubjects();
+
+// تسجيل Service Worker
+if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('service-worker.js')
+    .then(()=>console.log('Service Worker Registered'));
+}
+</script>
+</body>
+</html>
