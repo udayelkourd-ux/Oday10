@@ -4,117 +4,430 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>منظم الدراسة</title>
-<link rel="manifest" href="manifest.json">
 <style>
 body { font-family: Arial, sans-serif; direction: rtl; padding: 20px; background: #f0f0f0; }
 h1 { text-align: center; }
 .subject { margin-bottom: 20px; padding: 10px; background: #fff; border-radius: 8px; }
-.chapter { display: flex; justify-content: space-between; margin: 5px 0; }
-button { margin-left: 5px; }
+.chapter { display: flex; flex-direction: column; margin: 5px 0; padding: 5px; border-bottom: 1px solid #ccc; }
+.chapter-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.reviews { margin-left: 20px; margin-top: 5px; display: none; } 
+.review-item { display: flex; align-items: center; margin: 3px 0; padding: 3px; border-radius:4px; }
+.review-today { background-color: #d4fcd4; } 
+.review-done { color: #888; text-decoration: line-through; } 
+.done-today { text-decoration: line-through; color: #555; }
+input[type="datetime-local"] { margin-left: 5px; }
+button { margin-left: 5px; margin-top:5px; }
+.deleteBtn { background:none; border:none; color:red; font-weight:bold; cursor:pointer; margin-left:5px; }
+#menu { position: fixed; top: 10px; left: 10px; cursor: pointer; font-size: 24px; user-select: none; }
+#menuOptions { display:none; position: fixed; top: 40px; left:10px; background:#fff; border:1px solid #ccc; border-radius:5px; padding:5px; z-index:100; }
+#todayPage, #goalPage, #todaySelectionPage { display: none; background:#fff; padding:10px; border-radius:8px; margin-bottom: 20px; }
+#todayPage h3, #goalPage h3, #todaySelectionPage h3 { margin-top:0; }
 </style>
 </head>
 <body>
+<div id="menu">⋮</div>
+<div id="menuOptions">
+  <button id="openToday">مراجعات اليوم</button>
+  <button id="openGoals">أهداف اليوم/غدًا</button>
+</div> 
+
 <h1>منظم الدراسة</h1>
-
 <input id="subjectName" placeholder="أدخل اسم المادة">
-<button onclick="addSubject()">أضف مادة</button>
-<button onclick="resetAll()">إعادة كل شيء</button>
+<button id="addSubjectBtn">أضف مادة</button>
+<button id="resetBtn">إعادة كل شيء</button> 
 
-<div id="subjects"></div>
+<div id="todayPage">
+    <h3>مراجعات اليوم</h3>
+    <ul id="todayList"></ul>
+    <button id="backFromToday">رجوع</button>
+</div> 
+
+<div id="goalPage">
+    <h3>أهداف اليوم/غدًا</h3>
+    <div id="goalList"></div>
+    <button id="showTodaySelection">اعرض فقط ما سأدرسه اليوم</button>
+    <button id="backFromGoal">رجوع</button>
+</div> 
+
+<div id="todaySelectionPage">
+    <h3>مقرر اليوم</h3>
+    <div id="todaySelectionList"></div>
+    <button id="backFromSelection">رجوع</button>
+</div>
+
+<div id="subjects"></div> 
 
 <script>
-// تحميل البيانات من LocalStorage
+// بيانات التطبيق
 let data = JSON.parse(localStorage.getItem('studyData')) || [];
+let dailySelections = JSON.parse(localStorage.getItem('dailySelections')) || { date: '', selections: [] };
 
 // حفظ البيانات
-function saveData() {
-    localStorage.setItem('studyData', JSON.stringify(data));
-    renderSubjects();
+function saveData(){
+  localStorage.setItem('studyData', JSON.stringify(data));
+  localStorage.setItem('dailySelections', JSON.stringify(dailySelections));
+  renderSubjects();
+  renderTodayReviews();
+  renderGoalPage();
 }
 
-// عرض المواد والفصول
-function renderSubjects() {
-    const container = document.getElementById('subjects');
-    container.innerHTML = '';
-    data.forEach((subject, sIndex) => {
-        const div = document.createElement('div');
-        div.className = 'subject';
-        div.innerHTML = `<h3>${subject.name}</h3>
-                         <input placeholder="أضف شابتر" onkeydown="if(event.key==='Enter'){addChapter(${sIndex}, this.value); this.value='';}">
-                         <div id="chapters${sIndex}"></div>`;
-        container.appendChild(div);
+// ==================== الصفحة الرئيسية ====================
+function renderSubjects(){
+  const container = document.getElementById('subjects');
+  container.innerHTML='';
+  const today = new Date();
+  data.forEach((subject, sIndex)=>{
+    const div = document.createElement('div');
+    div.className='subject';
+    div.innerHTML = `
+      <h3>${subject.name} <button class="deleteBtn" data-s="${sIndex}">🗑️</button></h3>
+      <input placeholder="أضف شابتر" id="chapterInput_${sIndex}">
+      <button id="addChapterBtn_${sIndex}">أضف شابتر</button>
+    `;
+    container.appendChild(div);
 
-        const chaptersDiv = div.querySelector(`#chapters${sIndex}`);
-        subject.chapters.forEach((chapter, cIndex) => {
-            const chapDiv = document.createElement('div');
-            chapDiv.className = 'chapter';
-            chapDiv.innerHTML = `
-                <span>${chapter.name}</span>
-                <span>
-                    <input type="checkbox" ${chapter.done ? 'checked' : ''} onchange="markDone(${sIndex}, ${cIndex}, this.checked)">
-                    ${chapter.done ? `✅ انتهى: ${chapter.doneDate}` : ''}
-                </span>
-            `;
-            chaptersDiv.appendChild(chapDiv);
-        });
+    const input = div.querySelector(`#chapterInput_${sIndex}`);
+    const addBtn = div.querySelector(`#addChapterBtn_${sIndex}`);
+    addBtn.addEventListener('click', ()=>{
+      const val = input.value.trim();
+      if(val!==''){
+        addChapter(sIndex, val);
+        input.value='';
+      }
     });
-}
 
-// إضافة مادة
-function addSubject() {
-    const name = document.getElementById('subjectName').value.trim();
-    if(!name) return;
-    data.push({name: name, chapters: []});
-    saveData();
-    document.getElementById('subjectName').value = '';
-}
-
-// إضافة شابتر
-function addChapter(subjectIndex, chapterName) {
-    if(!chapterName) return;
-    data[subjectIndex].chapters.push({name: chapterName, done: false, doneDate: '', reviewDates: []});
-    saveData();
-}
-
-// وضع علامة صح وحساب التواريخ
-function markDone(subjectIndex, chapterIndex, checked) {
-    const chapter = data[subjectIndex].chapters[chapterIndex];
-    if(checked){
-        const now = new Date();
-        chapter.done = true;
-        chapter.doneDate = now.toLocaleString();
-
-        // تحديد مواعيد المراجعة
-        chapter.reviewDates = [
-            new Date(now.getFullYear(), now.getMonth(), now.getDate(), 21, 0, 0).toLocaleString(), // مساء نفس اليوم 9 مساء
-            new Date(now.getFullYear(), now.getMonth(), now.getDate()+1, 5, 0, 0).toLocaleString(), // صباح اليوم التالي 5 صباح
-            new Date(now.getFullYear(), now.getMonth(), now.getDate()+3, 5, 0, 0).toLocaleString(), // بعد 3 أيام
-            new Date(now.getFullYear(), now.getMonth(), now.getDate()+7, 5, 0, 0).toLocaleString() // بعد أسبوع
-        ];
-        alert(`تم وضع علامة إنهاء الشابتر\nمواعيد المراجعة:\n${chapter.reviewDates.join('\n')}`);
-    } else {
-        chapter.done = false;
-        chapter.doneDate = '';
-        chapter.reviewDates = [];
-    }
-    saveData();
-}
-
-// إعادة كل شيء
-function resetAll() {
-    if(confirm('هل أنت متأكد من إعادة كل شيء؟')){
-        data = [];
+    // حذف المادة
+    const deleteSubjectBtn = div.querySelector('.deleteBtn');
+    deleteSubjectBtn.addEventListener('click', ()=>{
+      if(confirm(`هل تريد حذف المادة "${subject.name}" وكل شابتراتها؟`)){
+        data.splice(sIndex,1);
         saveData();
-    }
+      }
+    });
+
+    subject.chapters.forEach((chapter, cIndex)=>{
+      const chapDiv = document.createElement('div');
+      chapDiv.className='chapter';
+      chapDiv.innerHTML=`
+        <div class="chapter-header">
+          <span>▶ ${chapter.name}</span>
+          <span>
+            <input type="checkbox" ${chapter.done?'checked':''}>
+            ${chapter.done?`✅ انتهى: ${chapter.doneDate}`:''}
+            <button class="deleteBtn" data-s="${sIndex}" data-c="${cIndex}">🗑️</button>
+          </span>
+        </div>
+        <div class="reviews"></div>
+      `;
+      container.appendChild(chapDiv);
+      const header = chapDiv.querySelector('.chapter-header');
+      header.addEventListener('click', ()=>toggleReviews(chapDiv));
+      const doneCheckbox = header.querySelector('input[type="checkbox"]');
+      doneCheckbox.addEventListener('click', e=>{
+        e.stopPropagation();
+        toggleChapterDone(sIndex,cIndex,doneCheckbox.checked);
+      });
+
+      // حذف الشابتر
+      const deleteChapterBtn = chapDiv.querySelector('.deleteBtn');
+      deleteChapterBtn.addEventListener('click', e=>{
+        e.stopPropagation();
+        if(confirm(`هل تريد حذف الشابتر "${chapter.name}"؟`)){
+          data[sIndex].chapters.splice(cIndex,1);
+          saveData();
+        }
+      });
+
+      renderReviews(sIndex,cIndex,today, chapDiv);
+    });
+  });
 }
+
+function toggleReviews(chapDiv){
+  const revDiv = chapDiv.querySelector('.reviews');
+  revDiv.style.display = (revDiv.style.display==='none')?'block':'none';
+}
+
+function renderReviews(subjectIndex, chapterIndex, today, chapDiv){
+  const chapter = data[subjectIndex].chapters[chapterIndex];
+  const reviewsDiv = chapDiv.querySelector('.reviews');
+  reviewsDiv.innerHTML='';
+  chapter.reviewDates.forEach((review,rIndex)=>{
+    const revDiv = document.createElement('div');
+    revDiv.className='review-item';
+    const reviewDate = new Date(review.timeLocal);
+    const isToday = (reviewDate.getFullYear()===today.getFullYear() && reviewDate.getMonth()===today.getMonth() && reviewDate.getDate()===today.getDate());
+    if(review.done) revDiv.classList.add('review-done');
+    else if(isToday) revDiv.classList.add('review-today');
+    revDiv.innerHTML=`
+      <input type="checkbox" ${review.done?'checked':''}>
+      <input type="datetime-local" value="${review.timeLocal}">
+      <span style="margin-left:5px;">${review.timeDisplay}</span>
+    `;
+    const chk = revDiv.querySelector('input[type="checkbox"]');
+    chk.addEventListener('change', ()=>{ 
+      review.done = chk.checked; 
+      saveData(); 
+    });
+    const dt = revDiv.querySelector('input[type="datetime-local"]');
+    dt.addEventListener('change', ()=>{ 
+      const date=new Date(dt.value); 
+      review.timeDisplay=date.toLocaleString(); 
+      review.timeLocal=dt.value; 
+      saveData(); 
+    });
+    reviewsDiv.appendChild(revDiv);
+  });
+}
+
+// ==================== وظائف البيانات ====================
+function addSubject(){
+  const input=document.getElementById('subjectName'); 
+  const name=input.value.trim(); 
+  if(!name) return; 
+  data.push({name:name, chapters:[]}); 
+  saveData(); 
+  input.value='';
+}
+
+function addChapter(sIndex, name) {
+    const today = new Date();
+    
+    function createReview(date) {
+        const dtLocal = date.toISOString().slice(0,16);
+        return { timeLocal: dtLocal, timeDisplay: date.toLocaleString(), done: false };
+    } 
+
+    let reviews = [];
+    let review1 = new Date(today);
+    review1.setHours(9,0,0,0);
+    if (review1 < today) review1 = today;
+    reviews.push(createReview(review1));
+    
+    let review2 = new Date(today);
+    review2.setDate(review2.getDate()+1);
+    review2.setHours(5,0,0,0);
+    reviews.push(createReview(review2));
+    
+    let review3 = new Date(today);
+    review3.setDate(review3.getDate()+3);
+    review3.setHours(5,0,0,0);
+    reviews.push(createReview(review3));
+    
+    let review4 = new Date(today);
+    review4.setDate(review4.getDate()+7);
+    review4.setHours(5,0,0,0);
+    reviews.push(createReview(review4)); 
+
+    data[sIndex].chapters.push({
+        name: name,
+        done: false,
+        doneDate: '',
+        reviewDates: reviews,
+        studyGoals: []
+    }); 
+
+    saveData();
+}
+
+function toggleChapterDone(sIndex,cIndex,checked){
+  const ch=data[sIndex].chapters[cIndex]; 
+  ch.done=checked; 
+  ch.doneDate=checked?new Date().toLocaleString():''; 
+  saveData();
+}
+
+function resetAll(){
+  if(confirm('هل أنت متأكد من إعادة كل شيء؟')){
+    data=[]; 
+    dailySelections = { date:'', selections:[] };
+    localStorage.removeItem('dailySelections');
+    saveData();
+  }
+}
+
+// ==================== مراجعات اليوم ====================
+function renderTodayReviews(){
+  const todayList = document.getElementById('todayList'); 
+  todayList.innerHTML='';
+  const today=new Date(); 
+
+  data.forEach(subject=>{
+    subject.chapters.forEach(chapter=>{
+      if(!chapter.done) return; 
+
+      chapter.reviewDates.forEach(review=>{
+        const reviewDate = new Date(review.timeLocal);
+        const isToday = (reviewDate.getFullYear()===today.getFullYear() && reviewDate.getMonth()===today.getMonth() && reviewDate.getDate()===today.getDate());
+        if(!isToday) return; 
+
+        const li=document.createElement('li'); 
+        li.className = 'review-item';
+        if(review.done) li.classList.add('review-done'); 
+
+        const chk = document.createElement('input');
+        chk.type='checkbox';
+        chk.checked = review.done;
+        chk.addEventListener('change', ()=>{
+          review.done = chk.checked;
+          saveData();
+        }); 
+
+        const text = document.createElement('span');
+        text.textContent = ` ${chapter.name} - ${subject.name} - ${review.timeDisplay}`; 
+
+        li.appendChild(chk);
+        li.appendChild(text);
+        todayList.appendChild(li);
+      });
+    });
+  });
+}
+
+// ==================== أهداف اليوم/غدًا مع مربعات اختيار ====================
+function renderGoalPage(){
+  const goalDiv=document.getElementById('goalList'); 
+  goalDiv.innerHTML=''; 
+
+  const today = new Date().toISOString().slice(0,10);
+  if(dailySelections.date !== today){
+    dailySelections = { date: today, selections: [] };
+    localStorage.setItem('dailySelections', JSON.stringify(dailySelections));
+  }
+
+  data.forEach((subject,sIndex)=>{
+    const chaptersToDo = subject.chapters.filter(ch => !ch.done);
+    if(chaptersToDo.length===0) return;
+
+    const subDiv=document.createElement('div'); 
+    subDiv.innerHTML=`<h4>${subject.name}</h4>`; 
+    goalDiv.appendChild(subDiv);
+
+    chaptersToDo.forEach((chapter,cIndex)=>{
+      const chapDiv=document.createElement('div');
+      const checked = dailySelections.selections.includes(`${subject.name}||${chapter.name}`) ? 'checked' : '';
+      chapDiv.innerHTML = `<input type="checkbox" class="dailySelect" data-sub="${subject.name}" data-ch="${chapter.name}" ${checked}> ${chapter.name}`;
+      subDiv.appendChild(chapDiv);
+    });
+  });
+
+  const checkboxes = document.querySelectorAll('.dailySelect');
+  checkboxes.forEach(chk=>{
+    chk.addEventListener('change', ()=>{
+      const key = `${chk.dataset.sub}||${chk.dataset.ch}`;
+      if(chk.checked){
+        if(!dailySelections.selections.includes(key)) dailySelections.selections.push(key);
+      } else {
+        dailySelections.selections = dailySelections.selections.filter(k=>k!==key);
+      }
+      localStorage.setItem('dailySelections', JSON.stringify(dailySelections));
+    });
+  });
+}
+
+// ==================== عرض صفحة ما سأدرسه اليوم ====================
+function renderTodaySelectionPage(){
+  const todaySelectionDiv = document.getElementById('todaySelectionList');
+  todaySelectionDiv.innerHTML='';
+
+  dailySelections.selections.forEach(key=>{
+    if(!dailySelections.done) dailySelections.done = {};
+    if(dailySelections.done[key] === undefined) dailySelections.done[key] = false;
+
+    const [sub, ch] = key.split('||');
+    const div = document.createElement('div');
+    const checked = dailySelections.done[key] ? 'checked' : '';
+    div.innerHTML = `<input type="checkbox" class="todayChk" data-key="${key}" ${checked}> <span class="${dailySelections.done[key]?'done-today':''}">${ch} - ${sub}</span>`;
+    todaySelectionDiv.appendChild(div);
+
+    const chk = div.querySelector('input');
+    const span = div.querySelector('span');
+    chk.addEventListener('change', ()=>{
+      dailySelections.done[key] = chk.checked;
+      if(chk.checked) span.classList.add('done-today');
+      else span.classList.remove('done-today');
+      localStorage.setItem('dailySelections', JSON.stringify(dailySelections));
+    });
+  });
+}
+
+// ==================== التنبيهات ====================
+function checkDueReviews(){
+  const now=new Date();
+  data.forEach(subject=>{
+    subject.chapters.forEach(chapter=>{
+      chapter.reviewDates.forEach(review=>{
+        if(!review.done){
+          const reviewTime=new Date(review.timeLocal);
+          if(now - reviewTime >=0 && now - reviewTime <60000){
+            alert(`حان وقت مراجعة الشابتر: ${chapter.name}\nالمادة: ${subject.name}`);
+          }
+        }
+      });
+    });
+  });
+}
+setInterval(checkDueReviews,60000);
+
+// ==================== الأحداث ====================
+document.getElementById('menu').addEventListener('click', ()=>{ 
+  const menu=document.getElementById('menuOptions'); 
+  menu.style.display=(menu.style.display==='none')?'block':'none'; 
+}); 
+
+document.getElementById('openToday').addEventListener('click', ()=>{
+  document.getElementById('subjects').style.display='none'; 
+  document.getElementById('subjectName').style.display='none';
+  document.getElementById('addSubjectBtn').style.display='none'; 
+  document.getElementById('resetBtn').style.display='none'; 
+  document.querySelector('h1').style.display='none';
+  renderTodayReviews(); 
+  document.getElementById('todayPage').style.display='block';
+  document.getElementById('menuOptions').style.display='none';
+});
+document.getElementById('backFromToday').addEventListener('click', ()=>{
+  document.getElementById('subjects').style.display='block'; 
+  document.getElementById('subjectName').style.display='inline-block';
+  document.getElementById('addSubjectBtn').style.display='inline-block'; 
+  document.getElementById('resetBtn').style.display='inline-block'; 
+  document.querySelector('h1').style.display='block';
+  document.getElementById('todayPage').style.display='none';
+}); 
+
+document.getElementById('openGoals').addEventListener('click', ()=>{
+  document.getElementById('subjects').style.display='none'; 
+  document.getElementById('subjectName').style.display='none';
+  document.getElementById('addSubjectBtn').style.display='none'; 
+  document.getElementById('resetBtn').style.display='none'; 
+  document.querySelector('h1').style.display='none';
+  renderGoalPage(); 
+  document.getElementById('goalPage').style.display='block';
+  document.getElementById('menuOptions').style.display='none';
+});
+document.getElementById('backFromGoal').addEventListener('click', ()=>{
+  document.getElementById('subjects').style.display='block'; 
+  document.getElementById('subjectName').style.display='inline-block';
+  document.getElementById('addSubjectBtn').style.display='inline-block'; 
+  document.getElementById('resetBtn').style.display='inline-block'; 
+  document.querySelector('h1').style.display='block';
+  document.getElementById('goalPage').style.display='none';
+}); 
+
+document.getElementById('showTodaySelection').addEventListener('click', ()=>{
+  document.getElementById('goalPage').style.display='none';
+  renderTodaySelectionPage();
+  document.getElementById('todaySelectionPage').style.display='block';
+});
+
+document.getElementById('backFromSelection').addEventListener('click', ()=>{
+  document.getElementById('todaySelectionPage').style.display='none';
+  document.getElementById('goalPage').style.display='block';
+});
+
+document.getElementById('addSubjectBtn').addEventListener('click', addSubject);
+document.getElementById('resetBtn').addEventListener('click', resetAll); 
 
 renderSubjects();
-
-// تسجيل Service Worker
-if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('service-worker.js')
-    .then(()=>console.log('Service Worker Registered'));
-}
 </script>
 </body>
 </html>
